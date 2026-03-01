@@ -1,0 +1,63 @@
+name: PR Agent (Command Only)
+
+on:
+  # PR内のコメントが「作成」または「編集」された時にトリガー
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: write
+
+jobs:
+  pr_agent_job:
+    # 実行条件のフィルタリング
+    # 1. 送信者がBotでないこと
+    # 2. コメントがプルリクエスト内で行われていること
+    # 3. コメントの先頭が「/」で始まっていること（コマンド実行の意思表示）
+    if: |
+      github.event.sender.type != 'Bot' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/')
+    runs-on: ubuntu-latest
+    name: Run PR Agent Command
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        uses: qodo-ai/pr-agent@main
+        env:
+          # --- 認証・接続設定 ---
+          # GitHubから自動発行される一時トークン（Secrets設定不要）
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # LiteLLM Proxy用のAPIキー（GitHubのSettings > Secretsに登録が必要）
+          OPENAI_KEY: ${{ secrets.LITELLM_API_KEY }}
+          # LiteLLM ProxyのエンドポイントURL（例: https://.../v1）
+          OPENAI.API_BASE: ${{ secrets.LITELLM_PROXY_URL }}
+          OPENAI_API_BASE: ${{ secrets.LITELLM_PROXY_URL }}
+          LITELLM_API_BASE: ${{ secrets.LITELLM_PROXY_URL }}
+
+          # --- モデル設定 ---
+          # LiteLLM側で定義しているモデル識別名
+          CONFIG.MODEL: "openai/kimi-k2-instruct-0905"
+          # フォールバックモデル
+          CONFIG.FALLBACK_MODELS: '["openai/kimi-k2-instruct", "openai/groq-gpt-oss-120b", "openai/nemotron-3-nano-free", "openai/gemini-flash"]'
+          # 未知のモデルを使用する際のコンテキストサイズ指定
+          CONFIG.CUSTOM_MODEL_MAX_TOKENS: "128000"
+          # 推論モデルの思考時間を考慮し、タイムアウトを10分(600秒)に延長
+          CONFIG.TIMEOUT: 600
+
+          # --- 出力カスタマイズ（日本語化） ---
+          # レビュー結果を日本語で出力し、ポジティブなフィードバックを促す指示
+          PR_REVIEWER.EXTRA_INSTRUCTIONS: >
+            ## 指示
+            - 必ず【日本語】で回答してください。
+            - 修正が必要な点だけでなく、実装の「良い点（ベストプラクティス、可読性、効率性）」も具体的に褒めてください。
+            - 指摘事項がある場合は、なぜ修正が必要なのか「理由」と「具体的な修正案」を併記してください。
+            - 深刻なバグ、パフォーマンス低下、セキュリティリスクを優先的にチェックしてください。
+
+          # 【説明文生成用】構造化された日本語の概要を生成させる
+          PR_DESCRIPTION.EXTRA_INSTRUCTIONS: >
+            - タイトル、サマリー、変更内容はすべて【日本語】で記述してください。
+            - 箇条書きを活用し、技術に詳しくない人でも変更内容が理解できるような「要約」を含めてください。
+            - 破壊的変更や依存関係の更新がある場合は、特記事項として明記してください。
