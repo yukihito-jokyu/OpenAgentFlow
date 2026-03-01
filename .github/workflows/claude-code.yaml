@@ -1,0 +1,100 @@
+name: Claude Code (@claude, GLM backend)
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  claude-code:
+    # @claude が含まれるコメントのみ反応
+    if: contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          # Issue のコンテキストとユーザーリクエストを渡す
+          prompt: |
+            ## 現在のIssue
+            タイトル: ${{ github.event.issue.title }}
+            本文: ${{ github.event.issue.body }}
+            ラベル: ${{ join(github.event.issue.labels.*.name, ', ') }}
+            
+            ## リクエスト
+            ${{ github.event.comment.body }}
+
+          # 🔑 GLM の API Key (with: 内に記載必須)
+          anthropic_api_key: ${{ secrets.GLM_API_KEY }}
+
+          # デバッグ用：フル出力を表示
+          show_full_output: true
+
+          # Claude Code CLI に渡す引数
+          claude_args: |
+            --max-turns 10
+            --dangerously-skip-permissions
+
+        env:
+          # 🌐 GLM の Anthropic互換エンドポイント
+          ANTHROPIC_BASE_URL: ${{ secrets.GLM_BASE_URL }}
+
+          # Modelの設定
+          ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-4.7
+          ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-4.7
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-4.5-Air
+
+      - name: Post comment to Issue/PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Step Summary ファイルから内容を取得（format-turnsで生成されたもの）
+          SUMMARY_FILE="$GITHUB_STEP_SUMMARY"
+          
+          if [ -f "$SUMMARY_FILE" ] && [ -s "$SUMMARY_FILE" ]; then
+            # Summary の内容をそのまま使用
+            RESPONSE=$(cat "$SUMMARY_FILE")
+          else
+            # Summary が空の場合は、JSONから抽出を試みる
+            OUTPUT_FILE="/home/runner/work/_temp/claude-execution-output.json"
+            
+            if [ -f "$OUTPUT_FILE" ]; then
+              # JSONから最後のassistantメッセージのテキストを抽出
+              RESPONSE=$(jq -r '[.[] | select(.type == "message" and .role == "assistant")] | last | .content[]? | select(.type == "text") | .text' "$OUTPUT_FILE" 2>/dev/null)
+              
+              # 空の場合は別の形式を試す
+              if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
+                RESPONSE=$(jq -r '[.[] | select(.type == "assistant")] | last | .message.content[]? | select(.type == "text") | .text' "$OUTPUT_FILE" 2>/dev/null || echo "応答の解析に失敗しました。")
+              fi
+            else
+              RESPONSE="出力ファイルが見つかりませんでした。"
+            fi
+          fi
+          
+          # コメントを投稿
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          
+          if [ -n "$ISSUE_NUMBER" ] && [ -n "$RESPONSE" ]; then
+            # レスポンスが非常に長い場合は切り詰める (65000文字制限)
+            if [ ${#RESPONSE} -gt 60000 ]; then
+              RESPONSE="${RESPONSE:0:60000}... (省略されました)"
+            fi
+            
+            gh issue comment "$ISSUE_NUMBER" --body "$RESPONSE"
+            echo "✅ コメントを投稿しました (Issue #$ISSUE_NUMBER)"
+          else
+            echo "⚠️ コメントを投稿できませんでした"
+            echo "ISSUE_NUMBER: $ISSUE_NUMBER"
+            echo "RESPONSE length: ${#RESPONSE}"
+          fi
