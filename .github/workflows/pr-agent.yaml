@@ -39,9 +39,9 @@ jobs:
 
           # --- モデル設定 ---
           # LiteLLM側で定義しているモデル識別名
-          CONFIG.MODEL: "openai/kimi-k2-instruct-0905"
+          CONFIG.MODEL: "openai/zai/glm-4.7"
           # フォールバックモデル
-          CONFIG.FALLBACK_MODELS: '["openai/kimi-k2-instruct", "openai/groq-gpt-oss-120b", "openai/nemotron-3-nano-free", "openai/gemini-flash"]'
+          CONFIG.FALLBACK_MODELS: '["openai/zai/glm-4.7-air", "openai/zai/glm-4.6", "openai/zai/glm-4.5-air", "openai/zai/glm-4.5-air", "openai/gemini-flash"]'
           # 未知のモデルを使用する際のコンテキストサイズ指定
           CONFIG.CUSTOM_MODEL_MAX_TOKENS: "128000"
           # 推論モデルの思考時間を考慮し、タイムアウトを10分(600秒)に延長
